@@ -96,15 +96,19 @@ export interface GitHubDirectoryEntry {
 
 /**
  * Gets GitHub token from environment
- *
- * TODO: Implement proper token management
- * - Support multiple tokens for rate limiting
- * - Support GitHub App authentication
+ * Returns undefined if not set (allows read-only operations on public repos)
  */
-function getGitHubToken(): string {
+function getGitHubToken(): string | undefined {
+  return process.env.GITHUB_TOKEN || undefined;
+}
+
+/**
+ * Gets GitHub token or throws if not set (for write operations)
+ */
+function requireGitHubToken(): string {
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
-    throw new Error('GITHUB_TOKEN environment variable is not set');
+    throw new Error('GITHUB_TOKEN environment variable is required for this operation');
   }
   return token;
 }
@@ -113,6 +117,49 @@ function getGitHubToken(): string {
  * Base URL for GitHub API
  */
 const GITHUB_API_BASE = 'https://api.github.com';
+
+/**
+ * Common headers for GitHub API requests
+ */
+function getHeaders(requireAuth: boolean = false): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Accept': 'application/vnd.github.v3+json',
+    'User-Agent': 'Agent-Workflow-Server',
+  };
+
+  const token = requireAuth ? requireGitHubToken() : getGitHubToken();
+  if (token) {
+    headers['Authorization'] = `token ${token}`;
+  }
+
+  return headers;
+}
+
+/**
+ * Makes a GitHub API request with error handling
+ */
+async function githubFetch<T>(
+  url: string,
+  options: RequestInit = {},
+  requireAuth: boolean = false
+): Promise<T> {
+  const headers = {
+    ...getHeaders(requireAuth),
+    ...options.headers,
+  };
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`GitHub API error (${response.status}): ${errorBody}`);
+  }
+
+  return response.json() as Promise<T>;
+}
 
 // ===========================================
 // Issue Operations
@@ -127,8 +174,6 @@ const GITHUB_API_BASE = 'https://api.github.com';
  * @returns Issue details
  *
  * API: GET /repos/{owner}/{repo}/issues/{issue_number}
- *
- * TODO: Implement real GitHub API call
  */
 export async function getIssue(input: {
   owner: string;
@@ -137,30 +182,18 @@ export async function getIssue(input: {
 }): Promise<GitHubIssue> {
   console.log(`[GitHub Tool] getIssue: ${input.owner}/${input.repo}#${input.issueNumber}`);
 
-  // STUB: Return mock data
-  // TODO: Replace with real API call
-  //
-  // Real implementation:
-  // const response = await fetch(
-  //   `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/issues/${input.issueNumber}`,
-  //   {
-  //     headers: {
-  //       Authorization: `token ${getGitHubToken()}`,
-  //       Accept: 'application/vnd.github.v3+json',
-  //     },
-  //   }
-  // );
-  // return response.json();
+  const url = `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/issues/${input.issueNumber}`;
+  const data = await githubFetch<GitHubIssue>(url);
 
   return {
-    number: input.issueNumber,
-    title: 'Mock Issue Title',
-    body: 'This is a mock issue body for development.',
-    state: 'open',
-    labels: [{ name: 'bug', color: 'd73a4a' }],
-    user: { login: 'mock-user' },
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    number: data.number,
+    title: data.title,
+    body: data.body || '',
+    state: data.state,
+    labels: data.labels || [],
+    user: data.user,
+    created_at: data.created_at,
+    updated_at: data.updated_at,
   };
 }
 
@@ -178,8 +211,6 @@ export async function getIssue(input: {
  * @returns Created comment
  *
  * API: POST /repos/{owner}/{repo}/issues/{issue_number}/comments
- *
- * TODO: Implement real GitHub API call
  */
 export async function createComment(input: {
   owner: string;
@@ -192,29 +223,23 @@ export async function createComment(input: {
   );
   console.log(`[GitHub Tool] Comment body (${input.body.length} chars)`);
 
-  // STUB: Return mock data
-  // TODO: Replace with real API call
-  //
-  // Real implementation:
-  // const response = await fetch(
-  //   `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/issues/${input.issueNumber}/comments`,
-  //   {
-  //     method: 'POST',
-  //     headers: {
-  //       Authorization: `token ${getGitHubToken()}`,
-  //       Accept: 'application/vnd.github.v3+json',
-  //       'Content-Type': 'application/json',
-  //     },
-  //     body: JSON.stringify({ body: input.body }),
-  //   }
-  // );
-  // return response.json();
+  const url = `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/issues/${input.issueNumber}/comments`;
+  const data = await githubFetch<GitHubComment>(
+    url,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: input.body }),
+    },
+    true // Requires authentication
+  );
 
+  console.log(`[GitHub Tool] Comment created: ${data.id}`);
   return {
-    id: Date.now(),
-    body: input.body,
-    user: { login: 'agent-bot' },
-    created_at: new Date().toISOString(),
+    id: data.id,
+    body: data.body,
+    user: data.user,
+    created_at: data.created_at,
   };
 }
 
@@ -234,8 +259,6 @@ export async function createComment(input: {
  * @returns Created pull request
  *
  * API: POST /repos/{owner}/{repo}/pulls
- *
- * TODO: Implement real GitHub API call
  */
 export async function createPullRequest(input: {
   owner: string;
@@ -249,38 +272,32 @@ export async function createPullRequest(input: {
   console.log(`[GitHub Tool] PR: ${input.head} → ${input.base}`);
   console.log(`[GitHub Tool] Title: ${input.title}`);
 
-  // STUB: Return mock data
-  // TODO: Replace with real API call
-  //
-  // Real implementation:
-  // const response = await fetch(
-  //   `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/pulls`,
-  //   {
-  //     method: 'POST',
-  //     headers: {
-  //       Authorization: `token ${getGitHubToken()}`,
-  //       Accept: 'application/vnd.github.v3+json',
-  //       'Content-Type': 'application/json',
-  //     },
-  //     body: JSON.stringify({
-  //       title: input.title,
-  //       body: input.body,
-  //       head: input.head,
-  //       base: input.base,
-  //     }),
-  //   }
-  // );
-  // return response.json();
+  const url = `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/pulls`;
+  const data = await githubFetch<GitHubPullRequest>(
+    url,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: input.title,
+        body: input.body || '',
+        head: input.head,
+        base: input.base,
+      }),
+    },
+    true // Requires authentication
+  );
 
+  console.log(`[GitHub Tool] PR created: ${data.html_url}`);
   return {
-    number: Math.floor(Math.random() * 1000) + 1,
-    title: input.title,
-    body: input.body || '',
-    state: 'open',
-    head: { ref: input.head, sha: 'mock-sha-123' },
-    base: { ref: input.base },
-    user: { login: 'agent-bot' },
-    html_url: `https://github.com/${input.owner}/${input.repo}/pull/123`,
+    number: data.number,
+    title: data.title,
+    body: data.body || '',
+    state: data.state,
+    head: data.head,
+    base: data.base,
+    user: data.user,
+    html_url: data.html_url,
   };
 }
 
@@ -298,8 +315,6 @@ export async function createPullRequest(input: {
  * @returns File content (decoded from base64)
  *
  * API: GET /repos/{owner}/{repo}/contents/{path}
- *
- * TODO: Implement real GitHub API call
  */
 export async function getFileContent(input: {
   owner: string;
@@ -312,31 +327,42 @@ export async function getFileContent(input: {
     console.log(`[GitHub Tool] Ref: ${input.ref}`);
   }
 
-  // STUB: Return mock data
-  // TODO: Replace with real API call
-  //
-  // Real implementation:
-  // const url = new URL(`${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/contents/${input.path}`);
-  // if (input.ref) url.searchParams.set('ref', input.ref);
-  //
-  // const response = await fetch(url.toString(), {
-  //   headers: {
-  //     Authorization: `token ${getGitHubToken()}`,
-  //     Accept: 'application/vnd.github.v3+json',
-  //   },
-  // });
-  // const data = await response.json();
-  // return {
-  //   ...data,
-  //   content: Buffer.from(data.content, 'base64').toString('utf8'),
-  // };
+  const url = new URL(`${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/contents/${input.path}`);
+  if (input.ref) {
+    url.searchParams.set('ref', input.ref);
+  }
+
+  interface GitHubContentResponse {
+    name: string;
+    path: string;
+    sha: string;
+    size: number;
+    content?: string;
+    encoding?: string;
+    type: string;
+  }
+
+  const data = await githubFetch<GitHubContentResponse>(url.toString());
+
+  // Handle directory response
+  if (data.type === 'dir' || Array.isArray(data)) {
+    throw new Error(`Path "${input.path}" is a directory, not a file. Use listFiles instead.`);
+  }
+
+  // Decode base64 content
+  let content = '';
+  if (data.content && data.encoding === 'base64') {
+    content = Buffer.from(data.content, 'base64').toString('utf8');
+  } else if (data.content) {
+    content = data.content;
+  }
 
   return {
-    name: input.path.split('/').pop() || 'unknown',
-    path: input.path,
-    content: `// Mock file content for ${input.path}\n\nexport function example() {\n  return 'Hello, World!';\n}\n`,
-    sha: 'mock-sha-456',
-    size: 100,
+    name: data.name,
+    path: data.path,
+    content,
+    sha: data.sha,
+    size: data.size,
   };
 }
 
@@ -349,8 +375,6 @@ export async function getFileContent(input: {
  * @returns Array of directory entries
  *
  * API: GET /repos/{owner}/{repo}/contents/{path}
- *
- * TODO: Implement real GitHub API call
  */
 export async function listFiles(input: {
   owner: string;
@@ -360,27 +384,33 @@ export async function listFiles(input: {
   const dirPath = input.path || '';
   console.log(`[GitHub Tool] listFiles: ${input.owner}/${input.repo}/${dirPath}`);
 
-  // STUB: Return mock data
-  // TODO: Replace with real API call
-  //
-  // Real implementation:
-  // const response = await fetch(
-  //   `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/contents/${dirPath}`,
-  //   {
-  //     headers: {
-  //       Authorization: `token ${getGitHubToken()}`,
-  //       Accept: 'application/vnd.github.v3+json',
-  //     },
-  //   }
-  // );
-  // return response.json();
+  const url = `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/contents/${dirPath}`;
 
-  return [
-    { name: 'src', path: 'src', type: 'dir', size: 0 },
-    { name: 'package.json', path: 'package.json', type: 'file', size: 1234 },
-    { name: 'README.md', path: 'README.md', type: 'file', size: 5678 },
-    { name: 'tsconfig.json', path: 'tsconfig.json', type: 'file', size: 456 },
-  ];
+  interface GitHubContentItem {
+    name: string;
+    path: string;
+    type: 'file' | 'dir' | 'symlink' | 'submodule';
+    size: number;
+  }
+
+  const data = await githubFetch<GitHubContentItem | GitHubContentItem[]>(url);
+
+  // Handle single file response (when path points to a file)
+  if (!Array.isArray(data)) {
+    return [{
+      name: data.name,
+      path: data.path,
+      type: data.type === 'file' ? 'file' : 'dir',
+      size: data.size,
+    }];
+  }
+
+  return data.map((item) => ({
+    name: item.name,
+    path: item.path,
+    type: item.type === 'file' ? 'file' : 'dir',
+    size: item.size,
+  }));
 }
 
 // ===========================================
@@ -394,7 +424,7 @@ export async function listFiles(input: {
  * @throws Error if credentials are missing
  */
 export function validateCredentials(): boolean {
-  getGitHubToken(); // Throws if not set
+  requireGitHubToken(); // Throws if not set
   return true;
 }
 
@@ -404,8 +434,6 @@ export function validateCredentials(): boolean {
  * @returns Rate limit information
  *
  * API: GET /rate_limit
- *
- * TODO: Implement real GitHub API call
  */
 export async function getRateLimit(): Promise<{
   limit: number;
@@ -414,10 +442,20 @@ export async function getRateLimit(): Promise<{
 }> {
   console.log('[GitHub Tool] getRateLimit');
 
-  // STUB: Return mock data
+  interface RateLimitResponse {
+    rate: {
+      limit: number;
+      remaining: number;
+      reset: number;
+    };
+  }
+
+  const url = `${GITHUB_API_BASE}/rate_limit`;
+  const data = await githubFetch<RateLimitResponse>(url);
+
   return {
-    limit: 5000,
-    remaining: 4999,
-    reset: new Date(Date.now() + 3600000),
+    limit: data.rate.limit,
+    remaining: data.rate.remaining,
+    reset: new Date(data.rate.reset * 1000),
   };
 }
