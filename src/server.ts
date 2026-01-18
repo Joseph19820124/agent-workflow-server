@@ -17,7 +17,6 @@
 import express, { Application, Request, Response } from 'express';
 import dotenv from 'dotenv';
 import { githubRouter } from './routes/github';
-import * as packageInfo from '../package.json';
 
 // Load environment variables
 dotenv.config();
@@ -25,7 +24,7 @@ dotenv.config();
 // ===========================================
 // Constants
 // ===========================================
-const APP_VERSION = packageInfo.version;
+const APP_VERSION = '1.0.0';
 
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
