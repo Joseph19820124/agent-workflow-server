@@ -50,19 +50,27 @@ Do NOT use this skill for:
 
 ### Phase 3: Implement and Submit
 
-1. **Create the fix**
-   - Use `fs.writeFile` to create or modify files
+1. **Create a fix branch**
+   - Use `github.createBranch` to create a new branch: `fix/issue-<number>`
+   - Branch from `main` (or the default branch)
+
+2. **Create or update the fix**
+   - Use `github.getFileSha` to get SHA if updating an existing file
+   - Use `github.createOrUpdateFile` to commit the fix
+     - Include a clear commit message: `fix: <description>`
    - Follow repository conventions (formatting, naming, etc.)
 
-2. **Open a Pull Request**
+3. **Open a Pull Request**
    - Use `github.createPullRequest` with:
      - Clear title: `fix: <short description>`
      - Body referencing the issue: `Fixes #<issue_number>`
      - Description of the fix and why it works
+     - `head`: your fix branch, `base`: main
 
-3. **Add a comment to the issue**
+4. **Add a comment to the issue**
    - Use `github.createComment` to inform the reporter
    - Explain what was found and how it's being fixed
+   - Reference the PR
 
 ## Do NOT
 
@@ -88,11 +96,14 @@ Before submitting a fix, verify:
 
 | Task | Tool | Example |
 |------|------|---------|
-| Read source code | `github.getFileContent` | `{owner, repo, path: "src/utils.ts"}` |
-| List directory | `github.listFiles` | `{owner, repo, path: "src/"}` |
-| Create PR | `github.createPullRequest` | `{owner, repo, title, body, head, base}` |
-| Comment on issue | `github.createComment` | `{owner, repo, issueNumber, body}` |
-| Write local file | `fs.writeFile` | `{path: "/tmp/fix.ts", content: "..."}` |
+| Read source code | `github_getFileContent` | `{owner, repo, path: "src/utils.ts"}` |
+| List directory | `github_listFiles` | `{owner, repo, path: "src/"}` |
+| Get branch info | `github_getBranch` | `{owner, repo, branch: "main"}` |
+| Create branch | `github_createBranch` | `{owner, repo, branch: "fix/issue-42"}` |
+| Get file SHA | `github_getFileSha` | `{owner, repo, path: "src/utils.ts"}` |
+| Create/update file | `github_createOrUpdateFile` | `{owner, repo, path, content, message, branch}` |
+| Create PR | `github_createPullRequest` | `{owner, repo, title, body, head, base}` |
+| Comment on issue | `github_createComment` | `{owner, repo, issueNumber, body}` |
 
 ## Success Criteria
 

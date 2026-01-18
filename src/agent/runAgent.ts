@@ -140,12 +140,18 @@ type ToolFunction = (input: any) => Promise<unknown>;
  * no decision logic, no business judgment.
  */
 const toolRegistry: Record<string, ToolFunction> = {
-  // GitHub Tools
+  // GitHub Tools - Read Operations
   'github_getIssue': githubTool.getIssue,
-  'github_createComment': githubTool.createComment,
-  'github_createPullRequest': githubTool.createPullRequest,
   'github_getFileContent': githubTool.getFileContent,
   'github_listFiles': githubTool.listFiles,
+  'github_getBranch': githubTool.getBranch,
+  'github_getFileSha': githubTool.getFileSha,
+
+  // GitHub Tools - Write Operations (Phase 3)
+  'github_createComment': githubTool.createComment,
+  'github_createBranch': githubTool.createBranch,
+  'github_createOrUpdateFile': githubTool.createOrUpdateFile,
+  'github_createPullRequest': githubTool.createPullRequest,
 
   // File System Tools
   'fs_readFile': fsTool.readFile,
@@ -230,6 +236,64 @@ const toolDefinitions = [
         path: { type: 'string' },
       },
       required: ['owner', 'repo'],
+    },
+  },
+  {
+    name: 'github_getBranch',
+    description: 'Get information about a branch including its SHA',
+    input_schema: {
+      type: 'object',
+      properties: {
+        owner: { type: 'string', description: 'Repository owner' },
+        repo: { type: 'string', description: 'Repository name' },
+        branch: { type: 'string', description: 'Branch name' },
+      },
+      required: ['owner', 'repo', 'branch'],
+    },
+  },
+  {
+    name: 'github_getFileSha',
+    description: 'Get the SHA of a file (needed for updating existing files)',
+    input_schema: {
+      type: 'object',
+      properties: {
+        owner: { type: 'string', description: 'Repository owner' },
+        repo: { type: 'string', description: 'Repository name' },
+        path: { type: 'string', description: 'File path' },
+        branch: { type: 'string', description: 'Branch name (optional)' },
+      },
+      required: ['owner', 'repo', 'path'],
+    },
+  },
+  {
+    name: 'github_createBranch',
+    description: 'Create a new branch from an existing branch',
+    input_schema: {
+      type: 'object',
+      properties: {
+        owner: { type: 'string', description: 'Repository owner' },
+        repo: { type: 'string', description: 'Repository name' },
+        branch: { type: 'string', description: 'New branch name' },
+        fromBranch: { type: 'string', description: 'Source branch (defaults to main)' },
+      },
+      required: ['owner', 'repo', 'branch'],
+    },
+  },
+  {
+    name: 'github_createOrUpdateFile',
+    description: 'Create or update a file in the repository (commits the change)',
+    input_schema: {
+      type: 'object',
+      properties: {
+        owner: { type: 'string', description: 'Repository owner' },
+        repo: { type: 'string', description: 'Repository name' },
+        path: { type: 'string', description: 'File path in repository' },
+        content: { type: 'string', description: 'File content' },
+        message: { type: 'string', description: 'Commit message' },
+        branch: { type: 'string', description: 'Target branch' },
+        sha: { type: 'string', description: 'File SHA (required for updates, omit for new files)' },
+      },
+      required: ['owner', 'repo', 'path', 'content', 'message', 'branch'],
     },
   },
   {

@@ -414,6 +414,225 @@ export async function listFiles(input: {
 }
 
 // ===========================================
+// Branch Operations (Phase 3 Support)
+// ===========================================
+
+/**
+ * GitHub Branch data structure
+ */
+export interface GitHubBranch {
+  name: string;
+  sha: string;
+  protected: boolean;
+}
+
+/**
+ * GitHub File commit result
+ */
+export interface GitHubFileCommitResult {
+  path: string;
+  sha: string;
+  commitSha: string;
+  commitUrl: string;
+}
+
+/**
+ * Gets information about a branch
+ *
+ * @param input.owner - Repository owner
+ * @param input.repo - Repository name
+ * @param input.branch - Branch name
+ * @returns Branch information including SHA
+ *
+ * API: GET /repos/{owner}/{repo}/branches/{branch}
+ */
+export async function getBranch(input: {
+  owner: string;
+  repo: string;
+  branch: string;
+}): Promise<GitHubBranch> {
+  console.log(`[GitHub Tool] getBranch: ${input.owner}/${input.repo}/${input.branch}`);
+
+  const url = `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/branches/${input.branch}`;
+
+  interface BranchResponse {
+    name: string;
+    commit: { sha: string };
+    protected: boolean;
+  }
+
+  const data = await githubFetch<BranchResponse>(url);
+
+  return {
+    name: data.name,
+    sha: data.commit.sha,
+    protected: data.protected,
+  };
+}
+
+/**
+ * Creates a new branch from a reference
+ *
+ * @param input.owner - Repository owner
+ * @param input.repo - Repository name
+ * @param input.branch - New branch name
+ * @param input.fromBranch - Source branch to create from (defaults to 'main')
+ * @returns Created branch information
+ *
+ * API: POST /repos/{owner}/{repo}/git/refs
+ */
+export async function createBranch(input: {
+  owner: string;
+  repo: string;
+  branch: string;
+  fromBranch?: string;
+}): Promise<GitHubBranch> {
+  const sourceBranch = input.fromBranch || 'main';
+  console.log(`[GitHub Tool] createBranch: ${input.owner}/${input.repo}/${input.branch} from ${sourceBranch}`);
+
+  // First, get the SHA of the source branch
+  const sourceInfo = await getBranch({
+    owner: input.owner,
+    repo: input.repo,
+    branch: sourceBranch,
+  });
+
+  // Create the new branch reference
+  const url = `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/git/refs`;
+
+  interface RefResponse {
+    ref: string;
+    object: { sha: string };
+  }
+
+  const data = await githubFetch<RefResponse>(
+    url,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ref: `refs/heads/${input.branch}`,
+        sha: sourceInfo.sha,
+      }),
+    },
+    true // Requires authentication
+  );
+
+  console.log(`[GitHub Tool] Branch created: ${input.branch} at ${data.object.sha}`);
+  return {
+    name: input.branch,
+    sha: data.object.sha,
+    protected: false,
+  };
+}
+
+/**
+ * Creates or updates a file in the repository
+ * This creates a commit with the file change
+ *
+ * @param input.owner - Repository owner
+ * @param input.repo - Repository name
+ * @param input.path - File path in the repository
+ * @param input.content - File content (will be base64 encoded)
+ * @param input.message - Commit message
+ * @param input.branch - Target branch
+ * @param input.sha - File SHA (required for updates, omit for new files)
+ * @returns Commit result
+ *
+ * API: PUT /repos/{owner}/{repo}/contents/{path}
+ */
+export async function createOrUpdateFile(input: {
+  owner: string;
+  repo: string;
+  path: string;
+  content: string;
+  message: string;
+  branch: string;
+  sha?: string;
+}): Promise<GitHubFileCommitResult> {
+  console.log(`[GitHub Tool] createOrUpdateFile: ${input.owner}/${input.repo}/${input.path}`);
+  console.log(`[GitHub Tool] Branch: ${input.branch}, Message: ${input.message}`);
+  console.log(`[GitHub Tool] Content length: ${input.content.length} chars`);
+
+  const url = `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/contents/${input.path}`;
+
+  // Base64 encode the content
+  const encodedContent = Buffer.from(input.content).toString('base64');
+
+  interface FileCommitResponse {
+    content: {
+      path: string;
+      sha: string;
+    };
+    commit: {
+      sha: string;
+      html_url: string;
+    };
+  }
+
+  const requestBody: Record<string, string> = {
+    message: input.message,
+    content: encodedContent,
+    branch: input.branch,
+  };
+
+  // Include SHA for updates (required by GitHub API)
+  if (input.sha) {
+    requestBody.sha = input.sha;
+  }
+
+  const data = await githubFetch<FileCommitResponse>(
+    url,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    },
+    true // Requires authentication
+  );
+
+  console.log(`[GitHub Tool] File committed: ${data.commit.sha}`);
+  return {
+    path: data.content.path,
+    sha: data.content.sha,
+    commitSha: data.commit.sha,
+    commitUrl: data.commit.html_url,
+  };
+}
+
+/**
+ * Gets the SHA of a file (needed for updates)
+ *
+ * @param input.owner - Repository owner
+ * @param input.repo - Repository name
+ * @param input.path - File path
+ * @param input.branch - Branch name
+ * @returns File SHA or null if file doesn't exist
+ */
+export async function getFileSha(input: {
+  owner: string;
+  repo: string;
+  path: string;
+  branch?: string;
+}): Promise<string | null> {
+  console.log(`[GitHub Tool] getFileSha: ${input.owner}/${input.repo}/${input.path}`);
+
+  try {
+    const file = await getFileContent({
+      owner: input.owner,
+      repo: input.repo,
+      path: input.path,
+      ref: input.branch,
+    });
+    return file.sha;
+  } catch (error) {
+    // File doesn't exist
+    console.log(`[GitHub Tool] File not found, will create new`);
+    return null;
+  }
+}
+
+// ===========================================
 // Utility Functions
 // ===========================================
 
