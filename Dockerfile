@@ -39,7 +39,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 
 # Copy skills directory (SKILL.md files needed at runtime)
-COPY src/skills ./src/skills
+# Skills are loaded relative to dist/, so copy to dist/skills
+COPY src/skills ./dist/skills
 
 # Set ownership
 RUN chown -R appuser:appgroup /app
