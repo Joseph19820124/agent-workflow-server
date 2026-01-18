@@ -149,6 +149,11 @@ curl -X POST http://localhost:3000/webhooks/github \
 }
 ```
 
+## 📋 TODO
+
+- [ ] `code-review-skill` - 代码审查技能（已注册触发器，待实现 SKILL.md）
+- [ ] `security-skill` - 安全漏洞分析技能（已注册触发器，待实现 SKILL.md）
+
 ## 📜 License
 
 MIT
