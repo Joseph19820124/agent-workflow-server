@@ -30,11 +30,15 @@
  * Agent does NOT directly execute any business actions.
  */
 
+import Anthropic from '@anthropic-ai/sdk';
 import { getBasePrompt } from './prompt';
 import { selectSkills, loadSkillContent, Skill } from './skillPolicy';
 import * as githubTool from '../tools/github';
 import * as fsTool from '../tools/fs';
 import * as httpTool from '../tools/http';
+
+// Initialize Anthropic client
+const anthropic = new Anthropic();
 
 // ===========================================
 // Types
@@ -82,6 +86,7 @@ interface Message {
  * Tool call request from Claude
  */
 interface ToolCall {
+  id: string;
   name: string;
   input: Record<string, unknown>;
 }
@@ -268,51 +273,64 @@ const toolDefinitions = [
 ];
 
 // ===========================================
-// Claude API Integration (Stub)
+// Claude API Integration
 // ===========================================
 
 /**
  * Calls Claude API with messages and tools
  *
  * @param systemPrompt - System instructions including loaded Skills
- * @param messages - Conversation history
+ * @param messages - Conversation history (Anthropic format)
  * @param tools - Available tool definitions
  * @returns Claude's response with potential tool calls
- *
- * TODO: Implement real Anthropic API integration
  */
 async function callClaude(
   systemPrompt: string,
-  messages: Message[],
+  messages: Anthropic.MessageParam[],
   tools: typeof toolDefinitions
 ): Promise<{
   content: string;
   toolCalls: ToolCall[];
   stopReason: 'end_turn' | 'tool_use' | 'max_tokens';
+  rawContentBlocks: Anthropic.ContentBlock[];
 }> {
-  // STUB: Simulates Claude API response
-  // TODO: Replace with real Anthropic SDK call
-  //
-  // Real implementation:
-  // const anthropic = new Anthropic();
-  // const response = await anthropic.messages.create({
-  //   model: 'claude-sonnet-4-20250514',
-  //   max_tokens: 4096,
-  //   system: systemPrompt,
-  //   messages: messages,
-  //   tools: tools,
-  // });
-
-  console.log('[Agent] Calling Claude API (stub)');
+  console.log('[Agent] Calling Claude API');
   console.log('[Agent] System prompt length:', systemPrompt.length);
   console.log('[Agent] Messages:', messages.length);
   console.log('[Agent] Available tools:', tools.length);
 
-  // Stub response - in real implementation, parse Claude's response
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: messages,
+    tools: tools as Anthropic.Tool[],
+  });
+
+  // Extract text content and tool calls from response
+  let textContent = '';
+  const toolCalls: ToolCall[] = [];
+
+  for (const block of response.content) {
+    if (block.type === 'text') {
+      textContent += block.text;
+    } else if (block.type === 'tool_use') {
+      toolCalls.push({
+        id: block.id,
+        name: block.name,
+        input: block.input as Record<string, unknown>,
+      });
+    }
+  }
+
+  console.log('[Agent] Response stop_reason:', response.stop_reason);
+  console.log('[Agent] Tool calls:', toolCalls.length);
+
   return {
-    content: 'I have analyzed the issue and determined the next steps.',
-    toolCalls: [],
-    stopReason: 'end_turn',
+    content: textContent,
+    toolCalls,
+    stopReason: response.stop_reason as 'end_turn' | 'tool_use' | 'max_tokens',
+    rawContentBlocks: response.content,
   };
 }
 
@@ -364,7 +382,9 @@ export async function runAgent(context: AgentContext): Promise<AgentResult> {
 
     // Step 4: Build initial user message from context
     const initialMessage = buildContextMessage(context);
-    const messages: Message[] = [{ role: 'user', content: initialMessage }];
+    const messages: Anthropic.MessageParam[] = [
+      { role: 'user', content: initialMessage },
+    ];
 
     // Step 5: Agent loop
     const MAX_ITERATIONS = 10;
@@ -377,35 +397,61 @@ export async function runAgent(context: AgentContext): Promise<AgentResult> {
       // Call Claude
       const response = await callClaude(systemPrompt, messages, toolDefinitions);
 
-      // Add assistant response to history
-      messages.push({ role: 'assistant', content: response.content });
+      // Add assistant response to history (with raw content blocks for tool_use)
+      messages.push({
+        role: 'assistant',
+        content: response.rawContentBlocks,
+      });
 
       // Check if we're done
       if (response.stopReason === 'end_turn' && response.toolCalls.length === 0) {
         console.log('[Agent] Task completed');
+        console.log('[Agent] Final response:', response.content);
         completedSteps.push('Task completed');
         break;
       }
 
       // Execute tool calls if any
       if (response.toolCalls.length > 0) {
+        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+
         for (const toolCall of response.toolCalls) {
           console.log(`[Agent] Executing tool: ${toolCall.name}`);
           completedSteps.push(`Executed tool: ${toolCall.name}`);
 
           const toolFn = toolRegistry[toolCall.name];
           if (!toolFn) {
-            throw new Error(`Unknown tool: ${toolCall.name}`);
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolCall.id,
+              content: `Error: Unknown tool "${toolCall.name}"`,
+              is_error: true,
+            });
+            continue;
           }
 
-          const toolResult = await toolFn(toolCall.input);
-
-          // Add tool result to conversation
-          messages.push({
-            role: 'user',
-            content: `Tool result for ${toolCall.name}:\n${JSON.stringify(toolResult, null, 2)}`,
-          });
+          try {
+            const toolResult = await toolFn(toolCall.input);
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolCall.id,
+              content: JSON.stringify(toolResult, null, 2),
+            });
+          } catch (error) {
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolCall.id,
+              content: `Error: ${(error as Error).message}`,
+              is_error: true,
+            });
+          }
         }
+
+        // Add tool results as user message
+        messages.push({
+          role: 'user',
+          content: toolResults,
+        });
       }
     }
 
