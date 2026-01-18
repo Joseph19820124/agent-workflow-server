@@ -21,6 +21,11 @@ import { githubRouter } from './routes/github';
 // Load environment variables
 dotenv.config();
 
+// ===========================================
+// Constants
+// ===========================================
+const APP_VERSION = '1.0.0';
+
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
 
@@ -36,7 +41,7 @@ app.get('/health', (_req: Request, res: Response) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    version: '1.0.0',
+    version: APP_VERSION,
   });
 });
 
