@@ -60,7 +60,7 @@ Skills are registered in `skillRegistry` array in `src/agent/skillPolicy.ts` wit
 ## Configuration
 
 Required environment variables (see `.env.example`):
-- `ANTHROPIC_API_KEY` - For Claude API calls
+- `OPENROUTER_API_KEY` - For Claude API calls via OpenRouter
 - `GITHUB_TOKEN` - For GitHub API operations
 - `GITHUB_WEBHOOK_SECRET` - For webhook signature validation
 
