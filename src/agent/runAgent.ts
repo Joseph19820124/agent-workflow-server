@@ -30,6 +30,7 @@
  * Agent does NOT directly execute any business actions.
  */
 
+import 'dotenv/config';
 import OpenAI from 'openai';
 import { getBasePrompt } from './prompt';
 import { selectSkills, loadSkillContent, Skill } from './skillPolicy';
@@ -38,17 +39,27 @@ import * as fsTool from '../tools/fs';
 import * as httpTool from '../tools/http';
 
 // Initialize OpenRouter client (OpenAI-compatible)
-const openrouter = new OpenAI({
-  baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: process.env.OPENROUTER_API_KEY,
-  defaultHeaders: {
-    'HTTP-Referer': process.env.APP_URL || 'http://localhost:3000',
-    'X-Title': 'Agent Workflow Server',
-  },
-});
+// Lazy initialization to ensure env vars are loaded
+let _openrouter: OpenAI | null = null;
+
+function getOpenRouterClient(): OpenAI {
+  if (!_openrouter) {
+    _openrouter = new OpenAI({
+      baseURL: 'https://openrouter.ai/api/v1',
+      apiKey: process.env.OPENROUTER_API_KEY,
+      defaultHeaders: {
+        'HTTP-Referer': process.env.APP_URL || 'http://localhost:3000',
+        'X-Title': 'Agent Workflow Server',
+      },
+    });
+  }
+  return _openrouter;
+}
 
 // Model to use (can be configured via env)
-const MODEL = process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4';
+function getModel(): string {
+  return process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4';
+}
 
 // ===========================================
 // Types
@@ -130,20 +141,20 @@ type ToolFunction = (input: any) => Promise<unknown>;
  */
 const toolRegistry: Record<string, ToolFunction> = {
   // GitHub Tools
-  'github.getIssue': githubTool.getIssue,
-  'github.createComment': githubTool.createComment,
-  'github.createPullRequest': githubTool.createPullRequest,
-  'github.getFileContent': githubTool.getFileContent,
-  'github.listFiles': githubTool.listFiles,
+  'github_getIssue': githubTool.getIssue,
+  'github_createComment': githubTool.createComment,
+  'github_createPullRequest': githubTool.createPullRequest,
+  'github_getFileContent': githubTool.getFileContent,
+  'github_listFiles': githubTool.listFiles,
 
   // File System Tools
-  'fs.readFile': fsTool.readFile,
-  'fs.writeFile': fsTool.writeFile,
-  'fs.listDirectory': fsTool.listDirectory,
+  'fs_readFile': fsTool.readFile,
+  'fs_writeFile': fsTool.writeFile,
+  'fs_listDirectory': fsTool.listDirectory,
 
   // HTTP Tools
-  'http.get': httpTool.get,
-  'http.post': httpTool.post,
+  'http_get': httpTool.get,
+  'http_post': httpTool.post,
 };
 
 /**
@@ -152,7 +163,7 @@ const toolRegistry: Record<string, ToolFunction> = {
  */
 const toolDefinitions = [
   {
-    name: 'github.getIssue',
+    name: 'github_getIssue',
     description: 'Get details of a GitHub issue',
     input_schema: {
       type: 'object',
@@ -165,7 +176,7 @@ const toolDefinitions = [
     },
   },
   {
-    name: 'github.createComment',
+    name: 'github_createComment',
     description: 'Create a comment on an issue or PR',
     input_schema: {
       type: 'object',
@@ -179,7 +190,7 @@ const toolDefinitions = [
     },
   },
   {
-    name: 'github.createPullRequest',
+    name: 'github_createPullRequest',
     description: 'Create a new pull request',
     input_schema: {
       type: 'object',
@@ -195,7 +206,7 @@ const toolDefinitions = [
     },
   },
   {
-    name: 'github.getFileContent',
+    name: 'github_getFileContent',
     description: 'Get content of a file from repository',
     input_schema: {
       type: 'object',
@@ -209,7 +220,7 @@ const toolDefinitions = [
     },
   },
   {
-    name: 'github.listFiles',
+    name: 'github_listFiles',
     description: 'List files in a directory',
     input_schema: {
       type: 'object',
@@ -222,7 +233,7 @@ const toolDefinitions = [
     },
   },
   {
-    name: 'fs.readFile',
+    name: 'fs_readFile',
     description: 'Read a local file',
     input_schema: {
       type: 'object',
@@ -233,7 +244,7 @@ const toolDefinitions = [
     },
   },
   {
-    name: 'fs.writeFile',
+    name: 'fs_writeFile',
     description: 'Write content to a local file',
     input_schema: {
       type: 'object',
@@ -245,7 +256,7 @@ const toolDefinitions = [
     },
   },
   {
-    name: 'fs.listDirectory',
+    name: 'fs_listDirectory',
     description: 'List files in a local directory',
     input_schema: {
       type: 'object',
@@ -256,7 +267,7 @@ const toolDefinitions = [
     },
   },
   {
-    name: 'http.get',
+    name: 'http_get',
     description: 'Make an HTTP GET request',
     input_schema: {
       type: 'object',
@@ -268,7 +279,7 @@ const toolDefinitions = [
     },
   },
   {
-    name: 'http.post',
+    name: 'http_post',
     description: 'Make an HTTP POST request',
     input_schema: {
       type: 'object',
@@ -317,16 +328,18 @@ async function callLLM(
   toolCalls: ToolCall[];
   finishReason: string;
 }> {
+  const model = getModel();
   console.log('[Agent] Calling OpenRouter API');
-  console.log('[Agent] Model:', MODEL);
+  console.log('[Agent] Model:', model);
   console.log('[Agent] System prompt length:', systemPrompt.length);
   console.log('[Agent] Messages:', messages.length);
   console.log('[Agent] Available tools:', tools.length);
 
   const openaiTools = convertToolsToOpenAI(tools);
+  const client = getOpenRouterClient();
 
-  const response = await openrouter.chat.completions.create({
-    model: MODEL,
+  const response = await client.chat.completions.create({
+    model: model,
     max_tokens: 4096,
     messages: [
       { role: 'system', content: systemPrompt },
