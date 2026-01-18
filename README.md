@@ -98,6 +98,57 @@ npm run build
 npm start
 ```
 
+## 🐳 Docker 部署
+
+### 本地构建运行
+
+```bash
+# 构建镜像
+docker build -t agent-workflow-server .
+
+# 运行容器
+docker run -d --name agent-server -p 3000:3000 \
+  -e OPENROUTER_API_KEY=sk-or-v1-xxx \
+  -e GITHUB_TOKEN=ghp_xxx \
+  agent-workflow-server
+```
+
+### Railway 部署
+
+项目已部署至 Railway：
+
+| 项目 | 信息 |
+|------|------|
+| 线上地址 | https://agent-workflow-server-production.up.railway.app |
+| Health Check | https://agent-workflow-server-production.up.railway.app/health |
+| Webhook URL | https://agent-workflow-server-production.up.railway.app/webhooks/github |
+
+**部署步骤**:
+
+```bash
+# 安装 Railway CLI
+npm install -g @railway/cli
+
+# 登录
+railway login
+
+# 初始化项目
+railway init
+
+# 设置环境变量
+railway variables --set "OPENROUTER_API_KEY=sk-or-v1-xxx" \
+                  --set "OPENROUTER_MODEL=anthropic/claude-sonnet-4" \
+                  --set "NODE_ENV=production"
+
+# 部署
+railway up
+
+# 生成公开域名
+railway domain
+```
+
+> **注意**: 本项目使用长时间运行的 Agent 循环（最多 10 次迭代），不适合部署到 Vercel 等 Serverless 平台（超时限制）。推荐使用 Railway、Render、Fly.io 等容器平台。
+
 ## 🧪 测试
 
 ```bash
