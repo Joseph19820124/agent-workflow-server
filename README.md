@@ -80,7 +80,7 @@ npm install
 ```bash
 cp .env.example .env
 # 编辑 .env 填入:
-# - ANTHROPIC_API_KEY
+# - OPENROUTER_API_KEY
 # - GITHUB_TOKEN
 # - GITHUB_WEBHOOK_SECRET
 ```
@@ -201,6 +201,15 @@ curl -X POST http://localhost:3000/webhooks/github \
 ```
 
 ## 📋 TODO
+
+### ✅ 已完成
+
+- [x] `bugfix-skill` - Bug 修复技能（完整实现三个阶段）
+  - Phase 1: 理解 Bug（读取 Issue、分析代码）
+  - Phase 2: 设计修复方案
+  - Phase 3: 实现并提交（创建分支、提交修复、创建 PR）
+
+### 🚧 待实现
 
 - [ ] `code-review-skill` - 代码审查技能（已注册触发器，待实现 SKILL.md）
 - [ ] `security-skill` - 安全漏洞分析技能（已注册触发器，待实现 SKILL.md）

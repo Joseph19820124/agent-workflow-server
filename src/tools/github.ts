@@ -678,3 +678,184 @@ export async function getRateLimit(): Promise<{
     reset: new Date(data.rate.reset * 1000),
   };
 }
+
+// ===========================================
+// Pull Request Operations (Code Review Support)
+// ===========================================
+
+/**
+ * PR file change information
+ */
+export interface GitHubPullRequestFile {
+  sha: string;
+  filename: string;
+  status: 'added' | 'removed' | 'modified' | 'renamed' | 'copied' | 'changed' | 'unchanged';
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch?: string; // Diff patch (may be missing for large files)
+}
+
+/**
+ * PR review result
+ */
+export interface GitHubPullRequestReview {
+  id: number;
+  user: { login: string };
+  body: string;
+  state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'PENDING';
+  html_url: string;
+  submitted_at: string;
+}
+
+/**
+ * Gets details of a pull request
+ *
+ * @param input.owner - Repository owner
+ * @param input.repo - Repository name
+ * @param input.pullNumber - Pull request number
+ * @returns Pull request details
+ *
+ * API: GET /repos/{owner}/{repo}/pulls/{pull_number}
+ */
+export async function getPullRequest(input: {
+  owner: string;
+  repo: string;
+  pullNumber: number;
+}): Promise<GitHubPullRequest> {
+  console.log(`[GitHub Tool] getPullRequest: ${input.owner}/${input.repo}#${input.pullNumber}`);
+
+  const url = `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/pulls/${input.pullNumber}`;
+  const data = await githubFetch<GitHubPullRequest>(url);
+
+  return {
+    number: data.number,
+    title: data.title,
+    body: data.body || '',
+    state: data.state,
+    head: data.head,
+    base: data.base,
+    user: data.user,
+    html_url: data.html_url,
+  };
+}
+
+/**
+ * Lists files changed in a pull request
+ *
+ * @param input.owner - Repository owner
+ * @param input.repo - Repository name
+ * @param input.pullNumber - Pull request number
+ * @returns Array of changed files with diff patches
+ *
+ * API: GET /repos/{owner}/{repo}/pulls/{pull_number}/files
+ */
+export async function listPullRequestFiles(input: {
+  owner: string;
+  repo: string;
+  pullNumber: number;
+}): Promise<GitHubPullRequestFile[]> {
+  console.log(`[GitHub Tool] listPullRequestFiles: ${input.owner}/${input.repo}#${input.pullNumber}`);
+
+  const url = `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/pulls/${input.pullNumber}/files`;
+  const data = await githubFetch<GitHubPullRequestFile[]>(url);
+
+  console.log(`[GitHub Tool] Found ${data.length} changed files`);
+  return data.map((file) => ({
+    sha: file.sha,
+    filename: file.filename,
+    status: file.status,
+    additions: file.additions,
+    deletions: file.deletions,
+    changes: file.changes,
+    patch: file.patch,
+  }));
+}
+
+/**
+ * Creates a review on a pull request
+ *
+ * @param input.owner - Repository owner
+ * @param input.repo - Repository name
+ * @param input.pullNumber - Pull request number
+ * @param input.body - Review comment body
+ * @param input.event - Review action: APPROVE, REQUEST_CHANGES, or COMMENT
+ * @returns Created review
+ *
+ * API: POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews
+ */
+export async function createPullRequestReview(input: {
+  owner: string;
+  repo: string;
+  pullNumber: number;
+  body: string;
+  event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
+}): Promise<GitHubPullRequestReview> {
+  console.log(`[GitHub Tool] createPullRequestReview: ${input.owner}/${input.repo}#${input.pullNumber}`);
+  console.log(`[GitHub Tool] Review event: ${input.event}`);
+
+  const url = `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/pulls/${input.pullNumber}/reviews`;
+  const data = await githubFetch<GitHubPullRequestReview>(
+    url,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        body: input.body,
+        event: input.event,
+      }),
+    },
+    true // Requires authentication
+  );
+
+  console.log(`[GitHub Tool] Review created: ${data.id}, state: ${data.state}`);
+  return {
+    id: data.id,
+    user: data.user,
+    body: data.body || '',
+    state: data.state,
+    html_url: data.html_url,
+    submitted_at: data.submitted_at,
+  };
+}
+
+/**
+ * Gets the diff of a pull request as plain text
+ *
+ * @param input.owner - Repository owner
+ * @param input.repo - Repository name
+ * @param input.pullNumber - Pull request number
+ * @returns Diff content as string
+ *
+ * API: GET /repos/{owner}/{repo}/pulls/{pull_number} with Accept: application/vnd.github.diff
+ */
+export async function getPullRequestDiff(input: {
+  owner: string;
+  repo: string;
+  pullNumber: number;
+}): Promise<string> {
+  console.log(`[GitHub Tool] getPullRequestDiff: ${input.owner}/${input.repo}#${input.pullNumber}`);
+
+  const url = `${GITHUB_API_BASE}/repos/${input.owner}/${input.repo}/pulls/${input.pullNumber}`;
+
+  const headers: Record<string, string> = {
+    'Accept': 'application/vnd.github.diff',
+    'User-Agent': 'Agent-Workflow-Server',
+  };
+
+  const token = getGitHubToken();
+  if (token) {
+    headers['Authorization'] = `token ${token}`;
+  }
+
+  const response = await fetch(url, { headers });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`GitHub API error (${response.status}): ${errorBody}`);
+  }
+
+  const diff = await response.text();
+  console.log(`[GitHub Tool] Diff size: ${diff.length} chars`);
+  return diff;
+}

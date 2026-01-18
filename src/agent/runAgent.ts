@@ -153,6 +153,12 @@ const toolRegistry: Record<string, ToolFunction> = {
   'github_createOrUpdateFile': githubTool.createOrUpdateFile,
   'github_createPullRequest': githubTool.createPullRequest,
 
+  // GitHub Tools - PR Review Operations (Code Review Skill)
+  'github_getPullRequest': githubTool.getPullRequest,
+  'github_listPullRequestFiles': githubTool.listPullRequestFiles,
+  'github_getPullRequestDiff': githubTool.getPullRequestDiff,
+  'github_createPullRequestReview': githubTool.createPullRequestReview,
+
   // File System Tools
   'fs_readFile': fsTool.readFile,
   'fs_writeFile': fsTool.writeFile,
@@ -353,6 +359,65 @@ const toolDefinitions = [
         headers: { type: 'object' },
       },
       required: ['url'],
+    },
+  },
+  // PR Review Tools (Code Review Skill)
+  {
+    name: 'github_getPullRequest',
+    description: 'Get details of a pull request',
+    input_schema: {
+      type: 'object',
+      properties: {
+        owner: { type: 'string', description: 'Repository owner' },
+        repo: { type: 'string', description: 'Repository name' },
+        pullNumber: { type: 'number', description: 'Pull request number' },
+      },
+      required: ['owner', 'repo', 'pullNumber'],
+    },
+  },
+  {
+    name: 'github_listPullRequestFiles',
+    description: 'List files changed in a pull request with diff patches',
+    input_schema: {
+      type: 'object',
+      properties: {
+        owner: { type: 'string', description: 'Repository owner' },
+        repo: { type: 'string', description: 'Repository name' },
+        pullNumber: { type: 'number', description: 'Pull request number' },
+      },
+      required: ['owner', 'repo', 'pullNumber'],
+    },
+  },
+  {
+    name: 'github_getPullRequestDiff',
+    description: 'Get the full diff of a pull request as plain text',
+    input_schema: {
+      type: 'object',
+      properties: {
+        owner: { type: 'string', description: 'Repository owner' },
+        repo: { type: 'string', description: 'Repository name' },
+        pullNumber: { type: 'number', description: 'Pull request number' },
+      },
+      required: ['owner', 'repo', 'pullNumber'],
+    },
+  },
+  {
+    name: 'github_createPullRequestReview',
+    description: 'Create a review on a pull request (approve, request changes, or comment)',
+    input_schema: {
+      type: 'object',
+      properties: {
+        owner: { type: 'string', description: 'Repository owner' },
+        repo: { type: 'string', description: 'Repository name' },
+        pullNumber: { type: 'number', description: 'Pull request number' },
+        body: { type: 'string', description: 'Review comment body (Markdown supported)' },
+        event: {
+          type: 'string',
+          enum: ['APPROVE', 'REQUEST_CHANGES', 'COMMENT'],
+          description: 'Review action: APPROVE, REQUEST_CHANGES, or COMMENT',
+        },
+      },
+      required: ['owner', 'repo', 'pullNumber', 'body', 'event'],
     },
   },
 ];
