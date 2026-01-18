@@ -30,15 +30,25 @@
  * Agent does NOT directly execute any business actions.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { getBasePrompt } from './prompt';
 import { selectSkills, loadSkillContent, Skill } from './skillPolicy';
 import * as githubTool from '../tools/github';
 import * as fsTool from '../tools/fs';
 import * as httpTool from '../tools/http';
 
-// Initialize Anthropic client
-const anthropic = new Anthropic();
+// Initialize OpenRouter client (OpenAI-compatible)
+const openrouter = new OpenAI({
+  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: process.env.OPENROUTER_API_KEY,
+  defaultHeaders: {
+    'HTTP-Referer': process.env.APP_URL || 'http://localhost:3000',
+    'X-Title': 'Agent Workflow Server',
+  },
+});
+
+// Model to use (can be configured via env)
+const MODEL = process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4';
 
 // ===========================================
 // Types
@@ -273,64 +283,85 @@ const toolDefinitions = [
 ];
 
 // ===========================================
-// Claude API Integration
+// OpenRouter API Integration
 // ===========================================
 
 /**
- * Calls Claude API with messages and tools
+ * Converts our tool definitions to OpenAI function format
+ */
+function convertToolsToOpenAI(tools: typeof toolDefinitions): OpenAI.ChatCompletionTool[] {
+  return tools.map((tool) => ({
+    type: 'function' as const,
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.input_schema,
+    },
+  }));
+}
+
+/**
+ * Calls LLM via OpenRouter with messages and tools
  *
  * @param systemPrompt - System instructions including loaded Skills
- * @param messages - Conversation history (Anthropic format)
+ * @param messages - Conversation history (OpenAI format)
  * @param tools - Available tool definitions
- * @returns Claude's response with potential tool calls
+ * @returns LLM response with potential tool calls
  */
-async function callClaude(
+async function callLLM(
   systemPrompt: string,
-  messages: Anthropic.MessageParam[],
+  messages: OpenAI.ChatCompletionMessageParam[],
   tools: typeof toolDefinitions
 ): Promise<{
   content: string;
   toolCalls: ToolCall[];
-  stopReason: 'end_turn' | 'tool_use' | 'max_tokens';
-  rawContentBlocks: Anthropic.ContentBlock[];
+  finishReason: string;
 }> {
-  console.log('[Agent] Calling Claude API');
+  console.log('[Agent] Calling OpenRouter API');
+  console.log('[Agent] Model:', MODEL);
   console.log('[Agent] System prompt length:', systemPrompt.length);
   console.log('[Agent] Messages:', messages.length);
   console.log('[Agent] Available tools:', tools.length);
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+  const openaiTools = convertToolsToOpenAI(tools);
+
+  const response = await openrouter.chat.completions.create({
+    model: MODEL,
     max_tokens: 4096,
-    system: systemPrompt,
-    messages: messages,
-    tools: tools as Anthropic.Tool[],
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...messages,
+    ],
+    tools: openaiTools,
+    tool_choice: 'auto',
   });
 
+  const choice = response.choices[0];
+  const message = choice.message;
+
   // Extract text content and tool calls from response
-  let textContent = '';
+  const textContent = message.content || '';
   const toolCalls: ToolCall[] = [];
 
-  for (const block of response.content) {
-    if (block.type === 'text') {
-      textContent += block.text;
-    } else if (block.type === 'tool_use') {
-      toolCalls.push({
-        id: block.id,
-        name: block.name,
-        input: block.input as Record<string, unknown>,
-      });
+  if (message.tool_calls) {
+    for (const tc of message.tool_calls) {
+      if (tc.type === 'function') {
+        toolCalls.push({
+          id: tc.id,
+          name: tc.function.name,
+          input: JSON.parse(tc.function.arguments),
+        });
+      }
     }
   }
 
-  console.log('[Agent] Response stop_reason:', response.stop_reason);
+  console.log('[Agent] Response finish_reason:', choice.finish_reason);
   console.log('[Agent] Tool calls:', toolCalls.length);
 
   return {
     content: textContent,
     toolCalls,
-    stopReason: response.stop_reason as 'end_turn' | 'tool_use' | 'max_tokens',
-    rawContentBlocks: response.content,
+    finishReason: choice.finish_reason || 'stop',
   };
 }
 
@@ -382,29 +413,48 @@ export async function runAgent(context: AgentContext): Promise<AgentResult> {
 
     // Step 4: Build initial user message from context
     const initialMessage = buildContextMessage(context);
-    const messages: Anthropic.MessageParam[] = [
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
       { role: 'user', content: initialMessage },
     ];
 
     // Step 5: Agent loop
     const MAX_ITERATIONS = 10;
     let iteration = 0;
+    let lastToolCalls: ToolCall[] = [];
 
     while (iteration < MAX_ITERATIONS) {
       iteration++;
       console.log(`[Agent] Iteration ${iteration}/${MAX_ITERATIONS}`);
 
-      // Call Claude
-      const response = await callClaude(systemPrompt, messages, toolDefinitions);
+      // Call LLM via OpenRouter
+      const response = await callLLM(systemPrompt, messages, toolDefinitions);
 
-      // Add assistant response to history (with raw content blocks for tool_use)
-      messages.push({
-        role: 'assistant',
-        content: response.rawContentBlocks,
-      });
+      // Add assistant response to history
+      if (response.toolCalls.length > 0) {
+        // Assistant message with tool calls
+        messages.push({
+          role: 'assistant',
+          content: response.content || null,
+          tool_calls: response.toolCalls.map((tc) => ({
+            id: tc.id,
+            type: 'function' as const,
+            function: {
+              name: tc.name,
+              arguments: JSON.stringify(tc.input),
+            },
+          })),
+        });
+        lastToolCalls = response.toolCalls;
+      } else {
+        // Regular assistant message
+        messages.push({
+          role: 'assistant',
+          content: response.content,
+        });
+      }
 
       // Check if we're done
-      if (response.stopReason === 'end_turn' && response.toolCalls.length === 0) {
+      if (response.finishReason === 'stop' && response.toolCalls.length === 0) {
         console.log('[Agent] Task completed');
         console.log('[Agent] Final response:', response.content);
         completedSteps.push('Task completed');
@@ -413,45 +463,31 @@ export async function runAgent(context: AgentContext): Promise<AgentResult> {
 
       // Execute tool calls if any
       if (response.toolCalls.length > 0) {
-        const toolResults: Anthropic.ToolResultBlockParam[] = [];
-
         for (const toolCall of response.toolCalls) {
           console.log(`[Agent] Executing tool: ${toolCall.name}`);
           completedSteps.push(`Executed tool: ${toolCall.name}`);
 
           const toolFn = toolRegistry[toolCall.name];
+          let resultContent: string;
+
           if (!toolFn) {
-            toolResults.push({
-              type: 'tool_result',
-              tool_use_id: toolCall.id,
-              content: `Error: Unknown tool "${toolCall.name}"`,
-              is_error: true,
-            });
-            continue;
+            resultContent = `Error: Unknown tool "${toolCall.name}"`;
+          } else {
+            try {
+              const toolResult = await toolFn(toolCall.input);
+              resultContent = JSON.stringify(toolResult, null, 2);
+            } catch (error) {
+              resultContent = `Error: ${(error as Error).message}`;
+            }
           }
 
-          try {
-            const toolResult = await toolFn(toolCall.input);
-            toolResults.push({
-              type: 'tool_result',
-              tool_use_id: toolCall.id,
-              content: JSON.stringify(toolResult, null, 2),
-            });
-          } catch (error) {
-            toolResults.push({
-              type: 'tool_result',
-              tool_use_id: toolCall.id,
-              content: `Error: ${(error as Error).message}`,
-              is_error: true,
-            });
-          }
+          // Add tool result message (OpenAI format)
+          messages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: resultContent,
+          });
         }
-
-        // Add tool results as user message
-        messages.push({
-          role: 'user',
-          content: toolResults,
-        });
       }
     }
 
