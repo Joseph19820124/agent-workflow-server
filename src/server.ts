@@ -18,6 +18,11 @@ import express, { Application, Request, Response } from 'express';
 import dotenv from 'dotenv';
 import { githubRouter } from './routes/github';
 
+// ===========================================
+// Constants
+// ===========================================
+const APP_VERSION = '1.0.0';
+
 // Load environment variables
 dotenv.config();
 
@@ -36,7 +41,7 @@ app.get('/health', (_req: Request, res: Response) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    version: '1.0.0',
+    version: APP_VERSION,
   });
 });
 
