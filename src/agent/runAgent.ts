@@ -404,7 +404,7 @@ async function callLLM(
 
   const response = await client.chat.completions.create({
     model: model,
-    max_tokens: 4096,
+    max_tokens: 2048,
     messages: [
       { role: 'system', content: systemPrompt },
       ...messages,
