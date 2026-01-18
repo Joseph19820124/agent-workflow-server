@@ -431,7 +431,7 @@ export async function runAgent(context: AgentContext): Promise<AgentResult> {
     ];
 
     // Step 5: Agent loop
-    const MAX_ITERATIONS = 10;
+    const MAX_ITERATIONS = 15;
     let iteration = 0;
     let lastToolCalls: ToolCall[] = [];
 
