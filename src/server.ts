@@ -26,6 +26,11 @@ const APP_VERSION = '1.0.0';
 // Load environment variables
 dotenv.config();
 
+// ===========================================
+// Constants
+// ===========================================
+const APP_VERSION = '1.0.0';
+
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
 
